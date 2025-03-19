@@ -1,9 +1,9 @@
-
+import socket
+import threading
 import json
-import struct
 import time
 import logging
-import threading
+import struct
 
 # Importing database and encryption functions
 from database import init_db, add_user, verify_user, get_all_users
@@ -37,9 +37,8 @@ def recv_json(conn):
     return json.loads(data_str)
 
 
-
 client_semaphore = threading.Semaphore(3)
-active_clients = {}  
+active_clients = {} 
 clients_lock = threading.Lock()
 
 #handling client connection
@@ -81,11 +80,7 @@ def handle_client(conn, addr):
                 if add_user(uname, pwd_hash):
                     response = {"type": "signup", "status": "success"}
                 else:
-                    response = {
-                        "type": "signup",
-                        "status": "fail",
-                        "error": "Username exists or error occurred"
-                    }
+                    response = {"type": "signup", "status": "fail", "error": "Username exists or error occurred"}
                 send_json(conn, response)
 
             elif msg_type == "login":
@@ -97,11 +92,7 @@ def handle_client(conn, addr):
                         active_clients[username] = conn
                     response = {"type": "login", "status": "success"}
                 else:
-                    response = {
-                        "type": "login",
-                        "status": "fail",
-                        "error": "Invalid credentials"
-                    }
+                    response = {"type": "login", "status": "fail", "error": "Invalid credentials"}
                 send_json(conn, response)
 
             elif msg_type == "get_users":
@@ -109,11 +100,7 @@ def handle_client(conn, addr):
                 all_list = get_all_users()  
                 with clients_lock:
                     online_list = list(active_clients.keys())  # Currently online users
-                response = {
-                    "type": "get_users",
-                    "all_users": all_list,
-                    "online_users": online_list
-                }
+                response = {"type": "get_users", "all_users": all_list, "online_users": online_list}
                 send_json(conn, response)
 
             elif msg_type == "message":
@@ -134,11 +121,7 @@ def handle_client(conn, addr):
                 allowed_extensions = (".docx", ".pdf", ".jpeg", ".jpg", ".png")
                 if not filename.lower().endswith(allowed_extensions):
                     logging.warning("File type not allowed: %s", filename)
-                    response = {
-                        "type": "file",
-                        "status": "fail",
-                        "error": "File type not allowed"
-                    }
+                    response = {"type": "file", "status": "fail", "error": "File type not allowed"}
                     send_json(conn, response)
                 else:
                     with clients_lock:
@@ -162,3 +145,34 @@ def handle_client(conn, addr):
             with clients_lock:
                 active_clients.pop(username, None)
                 logging.info("Active clients after disconnect: %s", list(active_clients.keys()))
+
+#Main server
+HOST = '0.0.0.0'
+PORT = 12345
+
+def start_server():
+    init_db()
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server_socket.bind((HOST, PORT))
+        server_socket.listen(5)
+        logging.info("Server listening on %s:%s", HOST, PORT)
+
+        while True:
+            try:
+                conn, addr = server_socket.accept()
+                client_thread = threading.Thread(target=handle_client, args=(conn, addr))
+                client_thread.daemon = True
+                client_thread.start()
+            except Exception as e:
+                logging.error("Error accepting connection: %s", e)
+    except KeyboardInterrupt:
+        logging.info("Server shutting down.")
+    except Exception as e:
+        logging.error("Server error: %s", e)
+    finally:
+        server_socket.close()
+
+if __name__ == '__main__':
+    start_server()
