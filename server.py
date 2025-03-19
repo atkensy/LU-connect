@@ -1,12 +1,41 @@
+
+import json
+import struct
 import time
 import logging
 import threading
-import struct
-from network_utils import send_json, recv_json
 
-# Importing databse and encryption functions
+# Importing database and encryption functions
 from database import init_db, add_user, verify_user, get_all_users
 from encryption import encrypt_message, decrypt_message
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+#helper functions
+def send_json(conn, data_dict):
+    message_str = json.dumps(data_dict)
+    encoded = message_str.encode('utf-8')
+    length_prefix = struct.pack('>I', len(encoded))
+    conn.sendall(length_prefix + encoded)
+
+def recv_json(conn):
+    raw_len = conn.recv(4)
+    if not raw_len:
+        return None
+    msg_len = struct.unpack('>I', raw_len)[0]
+
+    chunks = []
+    received = 0
+    while received < msg_len:
+        chunk = conn.recv(msg_len - received)
+        if not chunk:
+            return None
+        chunks.append(chunk)
+        received += len(chunk)
+
+    data_str = b''.join(chunks).decode('utf-8')
+    return json.loads(data_str)
+
 
 
 client_semaphore = threading.Semaphore(3)
@@ -19,7 +48,7 @@ def handle_client(conn, addr):
     username = None
 
     try:
-        # If the semaphore is full, send waiting updates.
+        # If the semaphore is full, send waiting updates
         start_wait = time.time()
         acquired = client_semaphore.acquire(blocking=False)
         while not acquired:
@@ -32,7 +61,7 @@ def handle_client(conn, addr):
             time.sleep(1)
             acquired = client_semaphore.acquire(blocking=False)
 
-        # Once acquired, inform the client they are connected.
+        # Once acquired, inform the client they are connected
         try:
             send_json(conn, {"type": "connected"})
         except Exception as e:
@@ -76,7 +105,7 @@ def handle_client(conn, addr):
                 send_json(conn, response)
 
             elif msg_type == "get_users":
-                # Return both the full list of registered users and those online.
+                # Return both the full list of registered users and those online
                 all_list = get_all_users()  
                 with clients_lock:
                     online_list = list(active_clients.keys())  # Currently online users
@@ -88,7 +117,7 @@ def handle_client(conn, addr):
                 send_json(conn, response)
 
             elif msg_type == "message":
-                # Relay encrypted message to the target.
+                # Relay encrypted message to the target
                 target = message.get("to")
                 with clients_lock:
                     target_conn = active_clients.get(target)
@@ -99,7 +128,7 @@ def handle_client(conn, addr):
                     logging.warning("Target user %s not found for messaging.", target)
 
             elif msg_type == "file":
-                # Handle file transfer, restricted to certain file types.
+                # Handle file transfer, restricted to certain file types
                 target = message.get("to")
                 filename = message.get("filename", "")
                 allowed_extensions = (".docx", ".pdf", ".jpeg", ".jpg", ".png")
